@@ -9,12 +9,13 @@
     #video { width: 100%; max-width: 400px; border-radius: 12px; display: none; }
     button { margin: 15px; padding: 15px; font-size: 18px; background: #4CAF50; color: white; border: none; border-radius: 8px; }
     #status { font-weight: bold; margin: 15px; color: green; }
+    .error { color: red; }
   </style>
 </head>
 <body>
   <h2>Supply Closet Scanner</h2>
   <button id="startBtn">Start Camera</button>
-  <video id="video" autoplay playsinline></video>
+  <video id="video" autoplay playsinline muted></video>
   <p id="status">Tap button to start...</p>
   <input id="name_input" placeholder="Enter item name" style="display:none; width:80%; padding:10px; margin:10px;">
   <button id="save_btn" style="display:none">Save Name</button>
@@ -28,49 +29,56 @@
     const startBtn = document.getElementById('startBtn');
     const status = document.getElementById('status');
 
-    startBtn.onclick = () => {
-      startBtn.style.display = 'none';
-      video.style.display = 'block';
-      status.innerText = "Camera starting...";
+    startBtn.onclick = async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = "Starting...";
+      status.innerText = "Requesting camera...";
 
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-        .then(stream => {
-          video.srcObject = stream;
-          status.innerText = "Scanning...";
-          codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
-            if (result) {
-              currentBarcode = result.text;
-              status.innerText = `Found: ${currentBarcode}`;
-              codeReader.reset();
-              fetch(`${API}?code=${currentBarcode}`)
-                .then(r => r.json())
-                .then(data => {
-                  if (data.action === "ask_name") {
-                    document.getElementById('name_input').style.display = 'block';
-                    document.getElementById('save_btn').style.display = 'block';
-                  } else {
-                    status.innerText = `${data.action.toUpperCase()}: ${data.qty}`;
-                  }
-                });
-            }
-          });
-        })
-        .catch(err => {
-          status.innerText = "Camera error: " + err.message;
-          startBtn.style.display = 'block';
-          video.style.display = 'none';
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: "environment", width: 640, height: 480 } 
         });
+        video.srcObject = stream;
+        video.style.display = 'block';
+        startBtn.style.display = 'none';
+        status.innerText = "Scanning...";
+
+        codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
+          if (result) {
+            currentBarcode = result.text;
+            status.innerText = `Found: ${currentBarcode}`;
+            codeReader.reset();
+            fetch(`${API}?code=${currentBarcode}`)
+              .then(r => r.json())
+              .then(data => {
+                if (data.action === "ask_name") {
+                  document.getElementById('name_input').style.display = 'block';
+                  document.getElementById('save_btn').style.display = 'block';
+                } else {
+                  status.innerText = `${data.action.toUpperCase()}: ${data.qty}`;
+                }
+              })
+              .catch(() => status.innerText = "API error");
+          }
+        });
+      } catch (err) {
+        status.innerHTML = `<span class="error">Camera failed: ${err.message}<br>Try: Settings → Site settings → Camera → Allow</span>`;
+        startBtn.disabled = false;
+        startBtn.textContent = "Try Again";
+      }
     };
 
     document.getElementById('save_btn').onclick = () => {
       const name = document.getElementById('name_input').value.trim();
       if (name && currentBarcode) {
-        fetch(`${API}?code=${currentBarcode}&name=${encodeURIComponent(name)}`);
-        status.innerText = `Added: ${name}`;
-        document.getElementById('name_input').style.display = 'none';
-        document.getElementById('save_btn').style.display = 'none';
-        document.getElementById('name_input').value = "";
-        setTimeout(() => codeReader.reset(), 2000);
+        fetch(`${API}?code=${currentBarcode}&name=${encodeURIComponent(name)}`)
+          .then(() => {
+            status.innerText = `Added: ${name}`;
+            document.getElementById('name_input').style.display = 'none';
+            document.getElementById('save_btn').style.display = 'none';
+            document.getElementById('name_input').value = "";
+            setTimeout(() => codeReader.reset(), 2000);
+          });
       }
     };
   </script>
