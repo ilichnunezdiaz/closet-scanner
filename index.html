@@ -51,7 +51,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
 
   <script>
-    const API = "https://script.google.com/macros/s/AKfycbyKHzGyNnNYlR6qqqIimpAFO8P7W7tqka9dyHtqTgihCv3Nxoy7vhx84PbXASAmfslU/exec";
+      const API = "https://script.google.com/macros/s/AKfycbyKHzGyNnNYlR6qqqIimpAFO8P7W7tqka9dyHtqTgihCv3Nxoy7vhx84PbXASAmfslU/exec";
     let currentBarcode = null;
     const codeReader = new ZXing.BrowserMultiFormatReader();
     const videoEl = document.getElementById('video');
@@ -60,51 +60,78 @@
     const status = document.getElementById('status');
     const inventoryTable = document.getElementById('inventory').querySelector('tbody');
 
-    // === START CAMERA ===
+  // === INVENTORY BUTTON ===
+    inventoryBtn.onclick = async () => {
+      inventoryBtn.disabled = true;
+      inventoryBtn.textContent = "Loading…";
+      status.textContent = "Fetching inventory…";
+      inventoryTable.innerHTML = "";
+      document.getElementById('inventory').style.display = "none";
+
+      try {
+        const res = await fetch(`${API}?list=1`, { mode: 'cors' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const items = await res.json();
+        if (!Array.isArray(items)) throw new Error("Invalid data");
+
+        if (items.length === 0) {
+          inventoryTable.innerHTML = "<tr><td colspan='2'>No items yet</td></tr>";
+        } else {
+          items.forEach(item => {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td>${item.name}</td><td>${item.qty}</td>`;
+            inventoryTable.appendChild(row);
+          });
+        }
+        document.getElementById('inventory').style.display = "table";
+        status.textContent = `Inventory: ${items.length} item${items.length === 1 ? '' : 's'}`;
+      } catch (err) {
+        console.error("Inventory error:", err);
+        status.innerHTML = `<span class="error">Failed to load inventory:<br>${err.message}</span>`;
+      } finally {
+        inventoryBtn.disabled = false;
+        inventoryBtn.textContent = "Show Inventory";
+      }
+    };
+
+  // === CAMERA & SCANNER (unchanged, just here for context) ===
     startBtn.onclick = async () => {
       startBtn.disabled = true;
       startBtn.textContent = "Starting…";
       status.textContent = "Requesting camera…";
-
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false
         });
-
         videoEl.srcObject = stream;
         videoEl.style.display = "block";
         startBtn.style.display = "none";
         inventoryBtn.style.display = "none";
         status.textContent = "Camera on – initializing…";
 
-        await new Promise((resolve, reject) => {
-          videoEl.onloadedmetadata = () => videoEl.play().then(() => setTimeout(resolve, 300)).catch(reject);
-          videoEl.onerror = reject;
+        await new Promise((r, rej) => {
+          videoEl.onloadedmetadata = () => videoEl.play().then(() => setTimeout(r, 300)).catch(rej);
+          videoEl.onerror = rej;
         });
 
         status.textContent = "Scanning…";
-
-        codeReader.decodeFromVideoDevice(null, videoEl, (result, err) => {
+        codeReader.decodeFromVideoDevice(null, videoEl, (result) => {
           if (result) {
             currentBarcode = result.getText();
             status.textContent = `Found: ${currentBarcode}`;
             codeReader.reset();
-
-            fetch(`${API}?code=${currentBarcode}`)
-              .then(r => r.json())
-              .then(data => {
-                if (data.action === "ask_name") {
-                  document.getElementById('name_input').style.display = "block";
-                  document.getElementById('save_btn').style.display = "block";
-                } else {
-                  status.textContent = `${data.action.toUpperCase()}: ${data.qty}`;
-                }
-              })
-              .catch(() => status.innerHTML = `<span class="error">API error</span>`);
+            fetch(`${API}?code=${currentBarcode}`).then(r => r.json()).then(data => {
+              if (data.action === "ask_name") {
+                document.getElementById('name_input').style.display = "block";
+                document.getElementById('save_btn').style.display = "block";
+              } else {
+                status.textContent = `${data.action.toUpperCase()}: ${data.qty}`;
+              }
+            });
           }
         });
-
       } catch (e) {
         status.innerHTML = `<span class="error">Camera failed: ${e.message}</span>`;
         startBtn.disabled = false;
@@ -113,7 +140,6 @@
       }
     };
 
-    // === SAVE NAME ===
     document.getElementById('save_btn').onclick = () => {
       const name = document.getElementById('name_input').value.trim();
       if (name && currentBarcode) {
@@ -122,43 +148,12 @@
             status.textContent = `Added: ${name}`;
             document.getElementById('name_input').style.display = "none";
             document.getElementById('save_btn').style.display = "none";
-            document.getElementById('name_input').value = "";
+              document.getElementById('name_input').value = "";
             setTimeout(() => codeReader.reset(), 2000);
           });
       }
     };
-
-    // === SHOW INVENTORY ===
-    inventoryBtn.onclick = () => {
-      inventoryBtn.disabled = true;
-      inventoryBtn.textContent = "Loading…";
-      status.textContent = "Fetching inventory…";
-
-      fetch(`${API}?list=1`)
-        .then(r => r.json())
-        .then(items => {
-          inventoryTable.innerHTML = "";
-          if (items.length === 0) {
-            inventoryTable.innerHTML = "<tr><td colspan='2'>No items yet</td></tr>";
-          } else {
-            items.forEach(item => {
-              const row = document.createElement('tr');
-              row.innerHTML = `<td>${item.name}</td><td>${item.qty}</td>`;
-              inventoryTable.appendChild(row);
-            });
-          }
-          document.getElementById('inventory').style.display = "table";
-          status.textContent = `Inventory: ${items.length} items`;
-        })
-        .catch(err => {
-          status.innerHTML = `<span class="error">Failed to load inventory</span>`;
-        })
-        .finally(() => {
-          inventoryBtn.disabled = false;
-          inventoryBtn.textContent = "Show Inventory";
-        });
-    };
-
   </script>
 </body>
 </html>
+
