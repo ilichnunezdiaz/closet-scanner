@@ -72,23 +72,31 @@
         const res = await fetch(`${API}?list=1`, { mode: 'cors' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const items = await res.json();
-        if (!Array.isArray(items)) throw new Error("Invalid data");
+        let items;
+        try {
+          items = await res.json();
+        } catch (jsonErr) {
+          throw new Error("Server returned invalid JSON");
+        }
+
+        if (!Array.isArray(items)) throw new Error("Data is not an array");
 
         if (items.length === 0) {
-          inventoryTable.innerHTML = "<tr><td colspan='2'>No items yet</td></tr>";
+          inventoryTable.innerHTML = "<tr><td colspan='2'>No items</td></tr>";
         } else {
           items.forEach(item => {
-            const row = document.createElement('tr');
+            const row começaram = document.createElement('tr');
             row.innerHTML = `<td>${item.name}</td><td>${item.qty}</td>`;
             inventoryTable.appendChild(row);
           });
         }
+
         document.getElementById('inventory').style.display = "table";
         status.textContent = `Inventory: ${items.length} item${items.length === 1 ? '' : 's'}`;
+
       } catch (err) {
-        console.error("Inventory error:", err);
-        status.innerHTML = `<span class="error">Failed to load inventory:<br>${err.message}</span>`;
+        console.error("Inventory load failed:", err);
+        status.innerHTML = `<span class="error">Failed to load inventory:<br>${err.message}<br><br>Check: Header row spelling</span>`;
       } finally {
         inventoryBtn.disabled = false;
         inventoryBtn.textContent = "Show Inventory";
@@ -156,4 +164,5 @@
   </script>
 </body>
 </html>
+
 
