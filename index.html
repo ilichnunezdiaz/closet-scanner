@@ -1,24 +1,142 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Camera Test</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Closet Scanner</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="data:application/manifest+json,{
+    \"name\":\"Closet Scanner\",
+    \"short_name\":\"Scanner\",
+    \"start_url\":\".\",
+    \"display\":\"standalone\",
+    \"background_color\":\"#f0f0f0\",
+    \"theme_color\":\"#4CAF50\",
+    \"icons\":[{\"src\":\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E\",\"sizes\":\"192x192\",\"type\":\"image/svg+xml\"}]
+  }">
+
+  <style>
+    body {font-family:-apple-system,system-ui,sans-serif;margin:20px;background:#f0f0f0;text-align:center;}
+    #video {width:100%;max-width:420px;border-radius:12px;display:none;margin:15px auto;}
+    button {margin:15px;padding:15px;font-size:18px;background:#4CAF50;color:#fff;border:none;border-radius:8px;width:80%;}
+    #status {margin:15px;font-weight:bold;color:green;white-space:pre-wrap;}
+    .error {color:red;}
+    input {width:80%;padding:12px;margin:10px;font-size:16px;display:none;}
+  </style>
 </head>
-<body style="text-align:center;margin-top:50px;">
-  <button onclick="start()">Start Camera</button>
-  <video id="v" autoplay playsinline style="width:90%;max-width:500px;margin-top:20px;"></video>
-  <p id="log"></p>
+<body>
+  <h2>Supply Closet Scanner</h2>
+  <button id="startBtn">Start Camera</button>
+  <video id="video" autoplay playsinline muted></video>
+  <p id="status">Tap to start…</p>
+
+  <input id="name_input" placeholder="Item name">
+  <button id="save_btn">Save</button>
+
+  <!-- ZXing Library (Latest) -->
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
+
   <script>
-    async function start() {
+    const API = "https://script.google.com/macros/s/AKfycbyKHzGyNnNYlR6qqqIimpAFO8P7W7tqka9dyHtqTgihCv3Nxoy7vhx84PbXASAmfslU/exec";
+    let currentBarcode = null;
+    const codeReader = new ZXing.BrowserMultiFormatReader();
+    const videoEl = document.getElementById('video');
+    const startBtn = document.getElementById('startBtn');
+    const status = document.getElementById('status');
+
+    startBtn.onclick = async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = "Starting…";
+      status.textContent = "Requesting camera…";
+
       try {
-        const s = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-        document.getElementById('v').srcObject = s;
-        document.getElementById('v').style.display = 'block';
-        document.getElementById('log').innerHTML = '<b style="color:green">Camera ON</b>';
-      } catch(e) {
-        document.getElementById('log').innerHTML = `<b style="color:red">ERROR: ${e.name}<br>${e.message}</b>`;
+        // 1. Get camera stream
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+
+        // 2. Attach to video
+        videoEl.srcObject = stream;
+        videoEl.style.display = "block";
+        startBtn.style.display = "none";
+        status.textContent = "Camera on – initializing scanner…";
+
+        // 3. CRITICAL: Wait for video to actually load and play
+        await new Promise((resolve, reject) => {
+          videoEl.onloadedmetadata = () => {
+            videoEl.play()
+              .then(() => {
+                setTimeout(resolve, 300); // Small delay for stability
+              })
+              .catch(reject);
+          };
+          videoEl.onerror = reject;
+        });
+
+        status.textContent = "Scanning…";
+
+        // 4. Start ZXing – only after video is confirmed playing
+        codeReader.decodeFromVideoDevice(null, videoEl, (result, err) => {
+          if (result) {
+            currentBarcode = result.getText();
+            status.textContent = `Found: ${currentBarcode}`;
+            codeReader.reset(); // Stop scanning
+
+            // Call your API
+            fetch(`${API}?code=${currentBarcode}`)
+              .then(r => r.json())
+              .then(data => {
+                if (data.action === "ask_name") {
+                  document.getElementById('name_input').style.display = "block";
+                  document.getElementById('save_btn').style.display = "block";
+                } else {
+                  status.textContent = `${data.action.toUpperCase()}: ${data.qty}`;
+                }
+              })
+              .catch(e => {
+                status.innerHTML = `<span class="error">API error: ${e.message}</span>`;
+              });
+          }
+
+          if (err && !(err instanceof ZXing.NotFoundException)) {
+            console.error("ZXing error:", err);
+          }
+        });
+
+      } catch (e) {
+        status.innerHTML = `<span class="error">
+          Camera failed: ${e.name}<br>
+          ${e.message}<br><br>
+          Try: Refresh → Re-allow camera
+        </span>`;
+        startBtn.disabled = false;
+        startBtn.textContent = "Try Again";
       }
-    }
+    };
+
+    // Save button
+    document.getElementById('save_btn').onclick = () => {
+      const name = document.getElementById('name_input').value.trim();
+      if (name && currentBarcode) {
+        fetch(`${API}?code=${currentBarcode}&name=${encodeURIComponent(name)}`)
+          .then(() => {
+            status.textContent = `Added: ${name}`;
+            document.getElementById('name_input').style.display = "none";
+            document.getElementById('save_btn').style.display = "none";
+            document.getElementById('name_input').value = "";
+            setTimeout(() => codeReader.reset(), 2000);
+          })
+          .catch(e => {
+            status.innerHTML = `<span class="error">Save failed: ${e.message}</span>`;
+          });
+      }
+    };
   </script>
 </body>
 </html>
