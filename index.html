@@ -1,123 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Closet Scanner</title>
-
-  <!-- PWA manifest – required for iOS “standalone” mode -->
-  <link rel="manifest" href="data:application/manifest+json,{
-    \"name\":\"Closet Scanner\",
-    \"short_name\":\"Scanner\",
-    \"start_url\":\".\",
-    \"display\":\"standalone\",
-    \"background_color\":\"#f0f0f0\",
-    \"theme_color\":\"#4CAF50\",
-    \"icons\":[{\"src\":\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E\",\"sizes\":\"192x192\",\"type\":\"image/svg+xml\"}]
-  }">
-
-  <style>
-    body{font-family:-apple-system,system-ui,sans-serif;margin:20px;background:#f0f0f0;text-align:center;}
-    #video{width:100%;max-width:420px;border-radius:12px;display:none;}
-    button{margin:15px;padding:15px;font-size:18px;background:#4CAF50;color:#fff;border:none;border-radius:8px;width:80%;}
-    #status{margin:15px;font-weight:bold;color:green;white-space:pre-wrap;}
-    .error{color:red;}
-    input{width:80%;padding:12px;margin:10px;font-size:16px;display:none;}
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Camera Test</title>
 </head>
-<body>
-  <h2>Supply Closet Scanner</h2>
-  <button id="startBtn">Start Camera</button>
-  <video id="video" autoplay playsinline muted></video>
-  <p id="status">Tap to start…</p>
-
-  <input id="name_input" placeholder="Item name">
-  <button id="save_btn">Save</button>
-
-  <!-- ZXing barcode library -->
-  <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
-
+<body style="text-align:center;margin-top:50px;">
+  <button onclick="start()">Start Camera</button>
+  <video id="v" autoplay playsinline style="width:90%;max-width:500px;margin-top:20px;"></video>
+  <p id="log"></p>
   <script>
-    const API = "https://script.google.com/macros/s/AKfycbyKHzGyNnNYlR6qqqIimpAFO8P7W7tqka9dyHtqTgihCv3Nxoy7vhx84PbXASAmfslU/exec";
-    let currentBarcode = null;
-    const codeReader = new ZXing.BrowserMultiFormatReader();
-    const videoEl = document.getElementById('video');
-    const startBtn = document.getElementById('startBtn');
-    const status = document.getElementById('status');
-
-    startBtn.onclick = async () => {
-      startBtn.disabled = true;
-      startBtn.textContent = "Starting…";
-      status.textContent = "Requesting camera…";
-
+    async function start() {
       try {
-        // 1. Request back camera, high-res (helps ZXing)
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
-
-        // 2. Attach stream
-        videoEl.srcObject = stream;
-        videoEl.style.display = "block";
-        startBtn.style.display = "none";
-        status.textContent = "Camera ready – scanning…";
-
-        // 3. Wait for the <video> element to actually start playing
-        await new Promise(r => {
-          videoEl.onloadedmetadata = () => {
-            videoEl.play().then(r).catch(r);
-          };
-        });
-
-        // 4. Start ZXing
-        codeReader.decodeFromVideoDevice(null, videoEl, (result, err) => {
-          if (result) {
-            currentBarcode = result.getText();
-            status.textContent = `Found: ${currentBarcode}`;
-            codeReader.reset();
-
-            fetch(`${API}?code=${currentBarcode}`)
-              .then(r => r.json())
-              .then(data => {
-                if (data.action === "ask_name") {
-                  document.getElementById('name_input').style.display = "block";
-                  document.getElementById('save_btn').style.display = "block";
-                } else {
-                  status.textContent = `${data.action.toUpperCase()}: ${data.qty}`;
-                }
-              })
-              .catch(e => status.innerHTML = `<span class="error">API error: ${e}</span>`);
-          }
-          if (err && !(err instanceof ZXing.NotFoundException)) {
-            status.innerHTML = `<span class="error">ZXing error: ${err.message}</span>`;
-          }
-        });
-
-      } catch (e) {
-        // Detailed error – copy this text and paste it back to me
-        status.innerHTML = `<span class="error">
-          Camera failed<br>
-          <strong>${e.name}</strong>: ${e.message}<br><br>
-          Checklist:<br>
-          • URL starts with <code>https://</code><br>
-          • Page opened from Home-Screen icon (not browser tab)<br>
-          • Camera permission granted in OS settings<br>
-          • Browser up-to-date
-        </span>`;
-        startBtn.disabled = false;
-        startBtn.textContent = "Try Again";
+        const s = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+        document.getElementById('v').srcObject = s;
+        document.getElementById('v').style.display = 'block';
+        document.getElementById('log').innerHTML = '<b style="color:green">Camera ON</b>';
+      } catch(e) {
+        document.getElementById('log').innerHTML = `<b style="color:red">ERROR: ${e.name}<br>${e.message}</b>`;
       }
-    };
-
-    document.getElementById('save_btn').onclick = () => {
-      const name = document.getElementById('name_input').value.trim();
-      if (name && currentBarcode) {
-        fetch(`${API}?code=${currentBarcode}&name=${encodeURIComponent(name)}`)
-          .then(() => {
-            status.textContent = `Added: ${name}`;
-            document.getElementById('name_input').style.display = "none";
+    }
+  </script>
+</body>
+</html>
