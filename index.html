@@ -52,7 +52,7 @@
     const status = document.getElementById('status');
     const inventoryTable = document.getElementById('inventory').querySelector('tbody');
 
-    // === INVENTORY BUTTON (FIXED) ===
+    // === INVENTORY BUTTON (WITH DEBUG OUTPUT) ===
     inventoryBtn.onclick = async () => {
       inventoryBtn.disabled = true;
       inventoryBtn.textContent = "Loading…";
@@ -64,15 +64,24 @@
         const res = await fetch(`${API}?list=1`, { mode: 'cors' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const items = await res.json();  // ← ONE CALL ONLY
-        if (!Array.isArray(items)) throw new Error("Data is not an array");
+        const text = await res.text();  // ← GET RAW RESPONSE
+        let items;
+        try {
+          items = JSON.parse(text);
+        } catch (e) {
+          throw new Error(`Invalid JSON:<br><pre>${text}</pre>`);
+        }
+
+        if (!Array.isArray(items)) {
+          throw new Error(`Not an array. Got:<br><pre>${JSON.stringify(items, null, 2)}</pre>`);
+        }
 
         if (items.length === 0) {
           inventoryTable.innerHTML = "<tr><td colspan='2'>No items</td></tr>";
         } else {
           items.forEach(item => {
-            const row = document.createElement('tr');  // ← FIXED: no "começaram"
-            row.innerHTML = `<td>${item.name}</td><td>${item.qty}</td>`;
+            const row = document.createElement('tr');
+            row.innerHTML = `<td>${item.name || '—'}</td><td>${item.qty || 0}</td>`;
             inventoryTable.appendChild(row);
           });
         }
@@ -81,8 +90,7 @@
         status.textContent = `Inventory: ${items.length} item${items.length === 1 ? '' : 's'}`;
 
       } catch (err) {
-        console.error("Inventory load failed:", err);
-        status.innerHTML = `<span class="error">Failed to load inventory:<br>${err.message}<br><br>Check: Header row spelling</span>`;
+        status.innerHTML = `<span class="error">Failed to load inventory:<br>${err.message}</span>`;
       } finally {
         inventoryBtn.disabled = false;
         inventoryBtn.textContent = "Show Inventory";
