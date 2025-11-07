@@ -6,54 +6,67 @@
   <title>Closet Scanner</title>
   <style>
     body { font-family: sans-serif; text-align: center; margin: 20px; background: #f0f0f0; }
-    #video { width: 100%; max-width: 400px; border-radius: 12px; }
-    input, button { margin: 10px; padding: 12px; width: 80%; border-radius: 8px; font-size: 16px; }
-    button { background: #4CAF50; color: white; border: none; }
+    #video { width: 100%; max-width: 400px; border-radius: 12px; display: none; }
+    button { margin: 15px; padding: 15px; font-size: 18px; background: #4CAF50; color: white; border: none; border-radius: 8px; }
     #status { font-weight: bold; margin: 15px; color: green; }
   </style>
 </head>
 <body>
   <h2>Supply Closet Scanner</h2>
+  <button id="startBtn">Start Camera</button>
   <video id="video" autoplay playsinline></video>
-  <p id="status">Starting camera...</p>
-  <input id="name_input" placeholder="Enter item name" style="display:none">
+  <p id="status">Tap button to start...</p>
+  <input id="name_input" placeholder="Enter item name" style="display:none; width:80%; padding:10px; margin:10px;">
   <button id="save_btn" style="display:none">Save Name</button>
 
-  <!-- ZXing Barcode Scanner (works on all phones) -->
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.0/umd/index.min.js"></script>
   <script>
     const API = "https://script.google.com/macros/s/AKfycbyKHzGyNnNYlR6qqqIimpAFO8P7W7tqka9dyHtqTgihCv3Nxoy7vhx84PbXASAmfslU/exec";
     let currentBarcode = null;
     const codeReader = new ZXing.BrowserMultiFormatReader();
+    const video = document.getElementById('video');
+    const startBtn = document.getElementById('startBtn');
+    const status = document.getElementById('status');
 
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-      .then(stream => {
-        const video = document.getElementById('video');
-        video.srcObject = stream;
-        codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
-          if (result) {
-            currentBarcode = result.text;
-            document.getElementById('status').innerText = `Found: ${currentBarcode}`;
-            codeReader.reset();
-            fetch(`${API}?code=${currentBarcode}`)
-              .then(r => r.json())
-              .then(data => {
-                if (data.action === "ask_name") {
-                  document.getElementById('name_input').style.display = 'block';
-                  document.getElementById('save_btn').style.display = 'block';
-                } else {
-                  document.getElementById('status').innerText = `${data.action.toUpperCase()}: ${data.qty}`;
-                }
-              });
-          }
+    startBtn.onclick = () => {
+      startBtn.style.display = 'none';
+      video.style.display = 'block';
+      status.innerText = "Camera starting...";
+
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+        .then(stream => {
+          video.srcObject = stream;
+          status.innerText = "Scanning...";
+          codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
+            if (result) {
+              currentBarcode = result.text;
+              status.innerText = `Found: ${currentBarcode}`;
+              codeReader.reset();
+              fetch(`${API}?code=${currentBarcode}`)
+                .then(r => r.json())
+                .then(data => {
+                  if (data.action === "ask_name") {
+                    document.getElementById('name_input').style.display = 'block';
+                    document.getElementById('save_btn').style.display = 'block';
+                  } else {
+                    status.innerText = `${data.action.toUpperCase()}: ${data.qty}`;
+                  }
+                });
+            }
+          });
+        })
+        .catch(err => {
+          status.innerText = "Camera error: " + err.message;
+          startBtn.style.display = 'block';
+          video.style.display = 'none';
         });
-      });
+    };
 
     document.getElementById('save_btn').onclick = () => {
       const name = document.getElementById('name_input').value.trim();
       if (name && currentBarcode) {
         fetch(`${API}?code=${currentBarcode}&name=${encodeURIComponent(name)}`);
-        document.getElementById('status').innerText = `Added: ${name}`;
+        status.innerText = `Added: ${name}`;
         document.getElementById('name_input').style.display = 'none';
         document.getElementById('save_btn').style.display = 'none';
         document.getElementById('name_input').value = "";
