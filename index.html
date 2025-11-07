@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Closet Scanner</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 20px; background: #f0f0f0; }
+    #video { width: 100%; max-width: 400px; border-radius: 12px; }
+    input, button { margin: 10px; padding: 12px; width: 80%; border-radius: 8px; font-size: 16px; }
+    button { background: #4CAF50; color: white; border: none; }
+    #status { font-weight: bold; margin: 15px; color: green; }
+  </style>
+</head>
+<body>
+  <h2>Supply Closet Scanner</h2>
+  <video id="video" autoplay playsinline></video>
+  <p id="status">Starting camera...</p>
+  <input id="name_input" placeholder="Enter item name" style="display:none">
+  <button id="save_btn" style="display:none">Save Name</button>
+
+  <!-- ZXing Barcode Scanner (works on all phones) -->
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.18.0/umd/index.min.js"></script>
+  <script>
+    const API = "https://script.google.com/macros/s/AKfycbyKHzGyNnNYlR6qqqIimpAFO8P7W7tqka9dyHtqTgihCv3Nxoy7vhx84PbXASAmfslU/exec";
+    let currentBarcode = null;
+    const codeReader = new ZXing.BrowserMultiFormatReader();
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(stream => {
+        const video = document.getElementById('video');
+        video.srcObject = stream;
+        codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
+          if (result) {
+            currentBarcode = result.text;
+            document.getElementById('status').innerText = `Found: ${currentBarcode}`;
+            codeReader.reset();
+            fetch(`${API}?code=${currentBarcode}`)
+              .then(r => r.json())
+              .then(data => {
+                if (data.action === "ask_name") {
+                  document.getElementById('name_input').style.display = 'block';
+                  document.getElementById('save_btn').style.display = 'block';
+                } else {
+                  document.getElementById('status').innerText = `${data.action.toUpperCase()}: ${data.qty}`;
+                }
+              });
+          }
+        });
+      });
+
+    document.getElementById('save_btn').onclick = () => {
+      const name = document.getElementById('name_input').value.trim();
+      if (name && currentBarcode) {
+        fetch(`${API}?code=${currentBarcode}&name=${encodeURIComponent(name)}`);
+        document.getElementById('status').innerText = `Added: ${name}`;
+        document.getElementById('name_input').style.display = 'none';
+        document.getElementById('save_btn').style.display = 'none';
+        document.getElementById('name_input').value = "";
+        setTimeout(() => codeReader.reset(), 2000);
+      }
+    };
+  </script>
+</body>
+</html>
