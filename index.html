@@ -19,22 +19,35 @@
   <style>
     body {font-family:-apple-system,system-ui,sans-serif;margin:20px;background:#f0f0f0;text-align:center;}
     #video {width:100%;max-width:420px;border-radius:12px;display:none;margin:15px auto;}
-    button {margin:15px;padding:15px;font-size:18px;background:#4CAF50;color:#fff;border:none;border-radius:8px;width:80%;}
+    button {margin:10px;padding:14px;font-size:17px;background:#4CAF50;color:#fff;border:none;border-radius:8px;width:80%;max-width:400px;}
     #status {margin:15px;font-weight:bold;color:green;white-space:pre-wrap;}
     .error {color:red;}
     input {width:80%;padding:12px;margin:10px;font-size:16px;display:none;}
+    #inventory {margin:20px auto;width:90%;max-width:500px;border-collapse:collapse;display:none;}
+    #inventory th, #inventory td {border:1px solid #ccc;padding:10px;text-align:left;}
+    #inventory th {background:#4CAF50;color:white;}
+    #inventory tr:nth-child(even) {background:#f9f9f9;}
   </style>
 </head>
 <body>
   <h2>Supply Closet Scanner</h2>
+
   <button id="startBtn">Start Camera</button>
+  <button id="inventoryBtn">Show Inventory</button>
+
   <video id="video" autoplay playsinline muted></video>
   <p id="status">Tap to start…</p>
 
   <input id="name_input" placeholder="Item name">
   <button id="save_btn">Save</button>
 
-  <!-- ZXing Library (Latest) -->
+  <!-- Inventory Table -->
+  <table id="inventory">
+    <thead><tr><th>Item Name</th><th>Quantity</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- ZXing -->
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
 
   <script>
@@ -43,52 +56,41 @@
     const codeReader = new ZXing.BrowserMultiFormatReader();
     const videoEl = document.getElementById('video');
     const startBtn = document.getElementById('startBtn');
+    const inventoryBtn = document.getElementById('inventoryBtn');
     const status = document.getElementById('status');
+    const inventoryTable = document.getElementById('inventory').querySelector('tbody');
 
+    // === START CAMERA ===
     startBtn.onclick = async () => {
       startBtn.disabled = true;
       startBtn.textContent = "Starting…";
       status.textContent = "Requesting camera…";
 
       try {
-        // 1. Get camera stream
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
+          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false
         });
 
-        // 2. Attach to video
         videoEl.srcObject = stream;
         videoEl.style.display = "block";
         startBtn.style.display = "none";
-        status.textContent = "Camera on – initializing scanner…";
+        inventoryBtn.style.display = "none";
+        status.textContent = "Camera on – initializing…";
 
-        // 3. CRITICAL: Wait for video to actually load and play
         await new Promise((resolve, reject) => {
-          videoEl.onloadedmetadata = () => {
-            videoEl.play()
-              .then(() => {
-                setTimeout(resolve, 300); // Small delay for stability
-              })
-              .catch(reject);
-          };
+          videoEl.onloadedmetadata = () => videoEl.play().then(() => setTimeout(resolve, 300)).catch(reject);
           videoEl.onerror = reject;
         });
 
         status.textContent = "Scanning…";
 
-        // 4. Start ZXing – only after video is confirmed playing
         codeReader.decodeFromVideoDevice(null, videoEl, (result, err) => {
           if (result) {
             currentBarcode = result.getText();
             status.textContent = `Found: ${currentBarcode}`;
-            codeReader.reset(); // Stop scanning
+            codeReader.reset();
 
-            // Call your API
             fetch(`${API}?code=${currentBarcode}`)
               .then(r => r.json())
               .then(data => {
@@ -99,28 +101,19 @@
                   status.textContent = `${data.action.toUpperCase()}: ${data.qty}`;
                 }
               })
-              .catch(e => {
-                status.innerHTML = `<span class="error">API error: ${e.message}</span>`;
-              });
-          }
-
-          if (err && !(err instanceof ZXing.NotFoundException)) {
-            console.error("ZXing error:", err);
+              .catch(() => status.innerHTML = `<span class="error">API error</span>`);
           }
         });
 
       } catch (e) {
-        status.innerHTML = `<span class="error">
-          Camera failed: ${e.name}<br>
-          ${e.message}<br><br>
-          Try: Refresh → Re-allow camera
-        </span>`;
+        status.innerHTML = `<span class="error">Camera failed: ${e.message}</span>`;
         startBtn.disabled = false;
         startBtn.textContent = "Try Again";
+        inventoryBtn.style.display = "block";
       }
     };
 
-    // Save button
+    // === SAVE NAME ===
     document.getElementById('save_btn').onclick = () => {
       const name = document.getElementById('name_input').value.trim();
       if (name && currentBarcode) {
@@ -131,12 +124,41 @@
             document.getElementById('save_btn').style.display = "none";
             document.getElementById('name_input').value = "";
             setTimeout(() => codeReader.reset(), 2000);
-          })
-          .catch(e => {
-            status.innerHTML = `<span class="error">Save failed: ${e.message}</span>`;
           });
       }
     };
+
+    // === SHOW INVENTORY ===
+    inventoryBtn.onclick = () => {
+      inventoryBtn.disabled = true;
+      inventoryBtn.textContent = "Loading…";
+      status.textContent = "Fetching inventory…";
+
+      fetch(`${API}?list=1`)
+        .then(r => r.json())
+        .then(items => {
+          inventoryTable.innerHTML = "";
+          if (items.length === 0) {
+            inventoryTable.innerHTML = "<tr><td colspan='2'>No items yet</td></tr>";
+          } else {
+            items.forEach(item => {
+              const row = document.createElement('tr');
+              row.innerHTML = `<td>${item.name}</td><td>${item.qty}</td>`;
+              inventoryTable.appendChild(row);
+            });
+          }
+          document.getElementById('inventory').style.display = "table";
+          status.textContent = `Inventory: ${items.length} items`;
+        })
+        .catch(err => {
+          status.innerHTML = `<span class="error">Failed to load inventory</span>`;
+        })
+        .finally(() => {
+          inventoryBtn.disabled = false;
+          inventoryBtn.textContent = "Show Inventory";
+        });
+    };
+
   </script>
 </body>
 </html>
