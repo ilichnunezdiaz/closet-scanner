@@ -62,7 +62,7 @@
       document.getElementById('inventory').style.display = "none";
 
       try {
-        const res = await fetch(`${API}?list=1`, { mode: 'cors' });
+        const res = await fetch(`${API}?action=get_inventory`, { mode: 'cors' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const text = await res.text();  // ← GET RAW RESPONSE
@@ -158,3 +158,4 @@
   </script>
 </body>
 </html>
+
