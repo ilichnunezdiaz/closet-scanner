@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -44,6 +43,7 @@
   <!-- ZXing -->
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
   <script>
+    // ==== UPDATE THIS URL AFTER DEPLOYING ====
     const API = "https://script.google.com/macros/s/AKfycbyKHzGyNnNYlR6qqqIimpAFO8P7W7tqka9dyHtqTgihCv3Nxoy7vhx84PbXASAmfslU/exec";
     let currentBarcode = null;
     const codeReader = new ZXing.BrowserMultiFormatReader();
@@ -53,52 +53,55 @@
     const status = document.getElementById('status');
     const inventoryTable = document.getElementById('inventory').querySelector('tbody');
 
-    // === INVENTORY BUTTON (WITH DEBUG OUTPUT) ===
+    // === INVENTORY BUTTON (FULLY FIXED) ===
     inventoryBtn.onclick = async () => {
       inventoryBtn.disabled = true;
       inventoryBtn.textContent = "Loading…";
-      status.textContent = "Fetching inventory…";
+      status.textContent = "Fetching…";
       inventoryTable.innerHTML = "";
       document.getElementById('inventory').style.display = "none";
 
       try {
-        const res = await fetch(`${API}?action=get_inventory`, { mode: 'cors' });
+        const res = await fetch(`${API}?action=get_inventory&ts=${Date.now()}`, { 
+          method: 'GET',
+          mode: 'cors',
+          cache: 'no-cache'
+        });
+
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const text = await res.text();  // ← GET RAW RESPONSE
-        let items;
+        const text = await res.text();
+        let data;
         try {
-          items = JSON.parse(text);
+          data = JSON.parse(text);
         } catch (e) {
-          throw new Error(`Invalid JSON:<br><pre>${text}</pre>`);
+          throw new Error(`Not JSON:<br><pre>${text}</pre>`);
         }
 
-        if (!Array.isArray(items)) {
-          throw new Error(`Not an array. Got:<br><pre>${JSON.stringify(items, null, 2)}</pre>`);
-        }
-
-        if (items.length === 0) {
+        if (data.action === "empty") {
           inventoryTable.innerHTML = "<tr><td colspan='2'>No items</td></tr>";
-        } else {
-          items.forEach(item => {
+        } else if (data.action === "inventory" && Array.isArray(data.items)) {
+          data.items.forEach(item => {
             const row = document.createElement('tr');
-            row.innerHTML = `<td>${item.name || '—'}</td><td>${item.qty || 0}</td>`;
+            row.innerHTML = `<td>${item.Name || '—'}</td><td>${item.Quantity || 0}</td>`;
             inventoryTable.appendChild(row);
           });
+        } else {
+          throw new Error(`Bad response:<br><pre>${JSON.stringify(data, null, 2)}</pre>`);
         }
 
         document.getElementById('inventory').style.display = "table";
-        status.textContent = `Inventory: ${items.length} item${items.length === 1 ? '' : 's'}`;
+        status.textContent = `Inventory: ${data.items?.length || 0} item${data.items?.length === 1 ? '' : 's'}`;
 
       } catch (err) {
-        status.innerHTML = `<span class="error">Failed to load inventory:<br>${err.message}</span>`;
+        status.innerHTML = `<span class="error">Failed:<br>${err.message}</span>`;
       } finally {
         inventoryBtn.disabled = false;
         inventoryBtn.textContent = "Show Inventory";
       }
     };
 
-    // === CAMERA & SCANNER (unchanged) ===
+    // === CAMERA & SCANNER ===
     startBtn.onclick = async () => {
       startBtn.disabled = true;
       startBtn.textContent = "Starting…";
@@ -123,14 +126,16 @@
             currentBarcode = result.getText();
             status.textContent = `Found: ${currentBarcode}`;
             codeReader.reset();
-            fetch(`${API}?code=${currentBarcode}`).then(r => r.json()).then(data => {
-              if (data.action === "ask_name") {
-                document.getElementById('name_input').style.display = "block";
-                document.getElementById('save_btn').style.display = "block";
-              } else {
-                status.textContent = `${data.action.toUpperCase()}: ${data.qty}`;
-              }
-            });
+            fetch(`${API}?code=${currentBarcode}`, { method: 'GET' })
+              .then(r => r.json())
+              .then(data => {
+                if (data.action === "ask_name") {
+                  document.getElementById('name_input').style.display = "block";
+                  document.getElementById('save_btn').style.display = "block";
+                } else {
+                  status.textContent = `${data.action.toUpperCase()}: ${data.qty}`;
+                }
+              });
           }
         });
       } catch (e) {
@@ -141,11 +146,11 @@
       }
     };
 
-    // === SAVE NAME (unchanged) ===
+    // === SAVE NAME ===
     document.getElementById('save_btn').onclick = () => {
       const name = document.getElementById('name_input').value.trim();
       if (name && currentBarcode) {
-        fetch(`${API}?code=${currentBarcode}&name=${encodeURIComponent(name)}`)
+        fetch(`${API}?code=${currentBarcode}&name=${encodeURIComponent(name)}`, { method: 'GET' })
           .then(() => {
             status.textContent = `Added: ${name}`;
             document.getElementById('name_input').style.display = "none";
@@ -158,4 +163,3 @@
   </script>
 </body>
 </html>
-
