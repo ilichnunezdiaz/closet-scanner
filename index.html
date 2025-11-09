@@ -18,6 +18,7 @@
     body {font-family:-apple-system,system-ui,sans-serif;margin:20px;background:#f0f0f0;text-align:center;}
     #video {width:100%;max-width:420px;border-radius:12px;display:none;margin:15px auto;}
     button {margin:10px;padding:14px;font-size:17px;background:#4CAF50;color:#fff;border:none;border-radius:8px;width:80%;max-width:400px;}
+    button.stop {background:#d32f2f;}
     #status {margin:15px;font-weight:bold;color:green;white-space:pre-wrap;}
     .error {color:red;}
     input {width:80%;padding:12px;margin:10px;font-size:16px;display:none;}
@@ -31,29 +32,38 @@
   <h2>Supply Closet Scanner</h2>
   <button id="startBtn">Start Camera</button>
   <button id="inventoryBtn">Show Inventory</button>
+
+  <!-- NEW: Stop Camera Button -->
+  <button id="stopBtn" class="stop" style="display:none;">Stop Camera</button>
+
   <video id="video" autoplay playsinline muted></video>
   <p id="status">Tap to start…</p>
   <input id="name_input" placeholder="Item name">
   <button id="save_btn">Save</button>
+
   <!-- Inventory Table -->
   <table id="inventory">
     <thead><tr><th>Item Name</th><th>Quantity</th></tr></thead>
     <tbody></tbody>
   </table>
+
   <!-- ZXing -->
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
   <script>
     // ==== UPDATE THIS URL AFTER DEPLOYING ====
     const API = "https://script.google.com/macros/s/AKfycbw0LtqkslVONojGDEKUyNQRH8_dLO77GTE3AUgLw9vyioDRgSpSN0UTBPD9xHKcBllh/exec";
+
     let currentBarcode = null;
+    let stream = null; // To hold camera stream
     const codeReader = new ZXing.BrowserMultiFormatReader();
     const videoEl = document.getElementById('video');
     const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
     const inventoryBtn = document.getElementById('inventoryBtn');
     const status = document.getElementById('status');
     const inventoryTable = document.getElementById('inventory').querySelector('tbody');
 
-    // === INVENTORY BUTTON (FULLY FIXED) ===
+    // === INVENTORY BUTTON (unchanged) ===
     inventoryBtn.onclick = async () => {
       inventoryBtn.disabled = true;
       inventoryBtn.textContent = "Loading…";
@@ -101,25 +111,28 @@
       }
     };
 
-    // === CAMERA & SCANNER ===
+    // === START CAMERA ===
     startBtn.onclick = async () => {
       startBtn.disabled = true;
-      startBtn.textContent = "Starting…";
+      startBtn.style.display = "none";
+      stopBtn.style.display = "block";
+      inventoryBtn.style.display = "none";
       status.textContent = "Requesting camera…";
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false
         });
         videoEl.srcObject = stream;
         videoEl.style.display = "block";
-        startBtn.style.display = "none";
-        inventoryBtn.style.display = "none";
         status.textContent = "Camera on – initializing…";
+
         await new Promise((r, rej) => {
           videoEl.onloadedmetadata = () => videoEl.play().then(() => setTimeout(r, 300)).catch(rej);
           videoEl.onerror = rej;
         });
+
         status.textContent = "Scanning…";
         codeReader.decodeFromVideoDevice(null, videoEl, (result) => {
           if (result) {
@@ -140,11 +153,35 @@
         });
       } catch (e) {
         status.innerHTML = `<span class="error">Camera failed: ${e.message}</span>`;
-        startBtn.disabled = false;
-        startBtn.textContent = "Try Again";
-        inventoryBtn.style.display = "block";
+        resetToMainScreen();
       }
     };
+
+    // === STOP CAMERA & GO BACK ===
+    stopBtn.onclick = () => {
+      resetToMainScreen();
+    };
+
+    function resetToMainScreen() {
+      // Stop camera
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+      videoEl.srcObject = null;
+      videoEl.style.display = "none";
+
+      // Reset UI
+      codeReader.reset();
+      startBtn.disabled = false;
+      startBtn.style.display = "block";
+      stopBtn.style.display = "none";
+      inventoryBtn.style.display = "block";
+      document.getElementById('name_input').style.display = "none";
+      document.getElementById('save_btn').style.display = "none";
+      document.getElementById('name_input').value = "";
+      status.textContent = "Tap to start…";
+    }
 
     // === SAVE NAME ===
     document.getElementById('save_btn').onclick = () => {
@@ -163,4 +200,3 @@
   </script>
 </body>
 </html>
-
