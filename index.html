@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Closet Scanner</title>
-  <!-- PWA Manifest -->
   <link rel="manifest" href="data:application/manifest+json,{
     \"name\":\"Closet Scanner\",
     \"short_name\":\"Scanner\",
@@ -19,6 +18,7 @@
     #video {width:100%;max-width:420px;border-radius:12px;display:none;margin:15px auto;}
     button {margin:10px;padding:14px;font-size:17px;background:#4CAF50;color:#fff;border:none;border-radius:8px;width:80%;max-width:400px;}
     button.stop {background:#d32f2f;}
+    button.small {padding:8px 12px;font-size:14px;width:auto;margin:2px;}
     #status {margin:15px;font-weight:bold;color:green;white-space:pre-wrap;}
     .error {color:red;}
     input {width:80%;padding:12px;margin:10px;font-size:16px;display:none;}
@@ -26,14 +26,14 @@
     #inventory th, #inventory td {border:1px solid #ccc;padding:10px;text-align:left;}
     #inventory th {background:#4CAF50;color:white;}
     #inventory tr:nth-child(even) {background:#f9f9f9;}
+    .qty-controls {display:flex;gap:5px;justify-content:center;align-items:center;}
+    .inventory-footer {margin-top:15px;}
   </style>
 </head>
 <body>
   <h2>Supply Closet Scanner</h2>
   <button id="startBtn">Start Camera</button>
   <button id="inventoryBtn">Show Inventory</button>
-
-  <!-- NEW: Stop Camera Button -->
   <button id="stopBtn" class="stop" style="display:none;">Stop Camera</button>
 
   <video id="video" autoplay playsinline muted></video>
@@ -43,18 +43,24 @@
 
   <!-- Inventory Table -->
   <table id="inventory">
-    <thead><tr><th>Item Name</th><th>Quantity</th></tr></thead>
+    <thead><tr><th>Item Name</th><th style="text-align:center;">Quantity</th><th style="text-align:center;">Adjust</th></tr></thead>
     <tbody></tbody>
   </table>
+
+  <!-- Inventory Count + Save Button (moved under table) -->
+  <div id="inventoryFooter" class="inventory-footer" style="display:none;">
+    <p id="inventoryCount" style="margin:10px 0;font-weight:bold;"></p>
+    <button id="saveInventoryBtn" style="background:#1976d2;">Save Changes</button>
+  </div>
 
   <!-- ZXing -->
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
   <script>
     // ==== UPDATE THIS URL AFTER DEPLOYING ====
-    const API = "https://script.google.com/macros/s/AKfycbw0LtqkslVONojGDEKUyNQRH8_dLO77GTE3AUgLw9vyioDRgSpSN0UTBPD9xHKcBllh/exec";
+    const API = "https://script.google.com/macros/s/AKfycbyKHzGyNnNYlR6qqqIimpAFO8P7W7tqka9dyHtqTgihCv3Nxoy7vhx84PbXASAmfslU/exec";
 
     let currentBarcode = null;
-    let stream = null; // To hold camera stream
+    let stream = null;
     const codeReader = new ZXing.BrowserMultiFormatReader();
     const videoEl = document.getElementById('video');
     const startBtn = document.getElementById('startBtn');
@@ -62,46 +68,40 @@
     const inventoryBtn = document.getElementById('inventoryBtn');
     const status = document.getElementById('status');
     const inventoryTable = document.getElementById('inventory').querySelector('tbody');
+    const inventoryFooter = document.getElementById('inventoryFooter');
+    const inventoryCount = document.getElementById('inventoryCount');
+    const saveInventoryBtn = document.getElementById('saveInventoryBtn');
 
-    // === INVENTORY BUTTON (unchanged) ===
+    let inventoryData = []; // Local copy to track changes
+
+    // === INVENTORY BUTTON ===
     inventoryBtn.onclick = async () => {
       inventoryBtn.disabled = true;
       inventoryBtn.textContent = "Loading…";
       status.textContent = "Fetching…";
       inventoryTable.innerHTML = "";
       document.getElementById('inventory').style.display = "none";
+      inventoryFooter.style.display = "none";
 
       try {
         const res = await fetch(`${API}?action=get_inventory&ts=${Date.now()}`, { 
-          method: 'GET',
-          mode: 'cors',
-          cache: 'no-cache'
+          method: 'GET', mode: 'cors', cache: 'no-cache'
         });
-
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        const text = await res.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          throw new Error(`Not JSON:<br><pre>${text}</pre>`);
-        }
+        const data = await res.json();
 
         if (data.action === "empty") {
-          inventoryTable.innerHTML = "<tr><td colspan='2'>No items</td></tr>";
+          inventoryTable.innerHTML = "<tr><td colspan='3'>No items</td></tr>";
         } else if (data.action === "inventory" && Array.isArray(data.items)) {
-          data.items.forEach(item => {
-            const row = document.createElement('tr');
-            row.innerHTML = `<td>${item.Name || '—'}</td><td>${item.Quantity || 0}</td>`;
-            inventoryTable.appendChild(row);
-          });
+          inventoryData = data.items.map(item => ({ ...item })); // deep copy
+          renderInventory();
         } else {
-          throw new Error(`Bad response:<br><pre>${JSON.stringify(data, null, 2)}</pre>`);
+          throw new Error("Invalid response");
         }
 
         document.getElementById('inventory').style.display = "table";
-        status.textContent = `Inventory: ${data.items?.length || 0} item${data.items?.length === 1 ? '' : 's'}`;
+        inventoryFooter.style.display = "block";
+        updateCount();
 
       } catch (err) {
         status.innerHTML = `<span class="error">Failed:<br>${err.message}</span>`;
@@ -111,7 +111,71 @@
       }
     };
 
-    // === START CAMERA ===
+    function renderInventory() {
+      inventoryTable.innerHTML = "";
+      inventoryData.forEach((item, idx) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${item.Name || '—'}</td>
+          <td style="text-align:center;font-weight:bold;">${item.Quantity || 0}</td>
+          <td class="qty-controls">
+            <button class="small" onclick="adjustQty(${idx}, -1)">–</button>
+            <button class="small" onclick="adjustQty(${idx}, 1)">+</button>
+          </td>
+        `;
+        inventoryTable.appendChild(row);
+      });
+    }
+
+    window.adjustQty = (idx, delta) => {
+      const item = inventoryData[idx];
+      const newQty = (parseInt(item.Quantity) || 0) + delta;
+      if (newQty >= 0) {
+        item.Quantity = newQty;
+        renderInventory();
+        updateCount();
+      }
+    };
+
+    function updateCount() {
+      const count = inventoryData.length;
+      inventoryCount.textContent = `Inventory: ${count} item${count === 1 ? '' : 's'}`;
+    }
+
+    // === SAVE INVENTORY CHANGES ===
+    saveInventoryBtn.onclick = async () => {
+      saveInventoryBtn.disabled = true;
+      saveInventoryBtn.textContent = "Saving…";
+      try {
+        const updates = inventoryData.map(item => ({
+          barcode: item.Barcode,
+          qty: item.Quantity
+        }));
+
+        const res = await fetch(API, {
+          method: 'POST',
+          mode: 'cors',
+          body: JSON.stringify({ action: 'update_quantities', updates }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const result = await res.json();
+        if (result.success) {
+          status.textContent = "Inventory saved!";
+          setTimeout(() => status.textContent = "Tap to start…", 2000);
+        } else {
+          throw new Error(result.error || "Save failed");
+        }
+      } catch (err) {
+        status.innerHTML = `<span class="error">Save failed:<br>${err.message}</span>`;
+      } finally {
+        saveInventoryBtn.disabled = false;
+        saveInventoryBtn.textContent = "Save Changes";
+      }
+    };
+
+    // === CAMERA & SCANNER ===
     startBtn.onclick = async () => {
       startBtn.disabled = true;
       startBtn.style.display = "none";
@@ -157,28 +221,22 @@
       }
     };
 
-    // === STOP CAMERA & GO BACK ===
-    stopBtn.onclick = () => {
-      resetToMainScreen();
-    };
+    stopBtn.onclick = () => resetToMainScreen();
 
     function resetToMainScreen() {
-      // Stop camera
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         stream = null;
       }
       videoEl.srcObject = null;
       videoEl.style.display = "none";
-
-      // Reset UI
       codeReader.reset();
       startBtn.disabled = false;
       startBtn.style.display = "block";
       stopBtn.style.display = "none";
       inventoryBtn.style.display = "block";
       document.getElementById('name_input').style.display = "none";
-      document.getElementById('save_btn').style.display = "none";
+      document.getElementById('save_btn').style.display = "block"; // stays visible
       document.getElementById('name_input').value = "";
       status.textContent = "Tap to start…";
     }
@@ -191,7 +249,6 @@
           .then(() => {
             status.textContent = `Added: ${name}`;
             document.getElementById('name_input').style.display = "none";
-            document.getElementById('save_btn').style.display = "none";
             document.getElementById('name_input').value = "";
             setTimeout(() => codeReader.reset(), 2000);
           });
