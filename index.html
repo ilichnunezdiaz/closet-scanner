@@ -5,12 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Closet Scanner</title>
   <link rel="manifest" href="data:application/manifest+json,{
-    \"name\":\"Closet Scanner\",
-    \"short_name\":\"Scanner\",
-    \"start_url\":\".\",
-    \"display\":\"standalone\",
-    \"background_color\":\"#f0f0f0\",
-    \"theme_color\":\"#4CAF50\",
+    \"name\":\"Closet Scanner\",\"short_name\":\"Scanner\",\"start_url\":\".\",
+    \"display\":\"standalone\",\"background_color\":\"#f0f0f0\",\"theme_color\":\"#4CAF50\",
     \"icons\":[{\"src\":\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E\",\"sizes\":\"192x192\",\"type\":\"image/svg+xml\"}]
   }">
   <style>
@@ -41,26 +37,22 @@
   <input id="name_input" placeholder="Item name">
   <button id="save_btn">Save</button>
 
-  <!-- Inventory Table -->
   <table id="inventory">
     <thead><tr><th>Item Name</th><th style="text-align:center;">Quantity</th><th style="text-align:center;">Adjust</th></tr></thead>
     <tbody></tbody>
   </table>
 
-  <!-- Inventory Count + Save Button (moved under table) -->
   <div id="inventoryFooter" class="inventory-footer" style="display:none;">
     <p id="inventoryCount" style="margin:10px 0;font-weight:bold;"></p>
     <button id="saveInventoryBtn" style="background:#1976d2;">Save Changes</button>
   </div>
 
-  <!-- ZXing -->
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
   <script>
     // ==== UPDATE THIS URL AFTER DEPLOYING ====
-    const API = "https://script.google.com/macros/s/AKfycbyR0AzR5Q87BueqDjxQvUBqNveHtGPFp-Gi09VovPgk-k4p1ebyJEN4FpuKd-2JS36o/exec";
+    const API = "https://script.google.com/macros/s/AKfycbxqk4MVuQUAMCFoggxpbC7s1ZbuhDee8-_AjGQ7tfPIxW2978JvPKN7BYdUJ6cyUBwP/exec";
 
-    let currentBarcode = null;
-    let stream = null;
+    let currentBarcode = null, stream = null;
     const codeReader = new ZXing.BrowserMultiFormatReader();
     const videoEl = document.getElementById('video');
     const startBtn = document.getElementById('startBtn');
@@ -71,43 +63,34 @@
     const inventoryFooter = document.getElementById('inventoryFooter');
     const inventoryCount = document.getElementById('inventoryCount');
     const saveInventoryBtn = document.getElementById('saveInventoryBtn');
+    let inventoryData = [];
 
-    let inventoryData = []; // Local copy to track changes
-
-    // === INVENTORY BUTTON ===
+    // === SHOW INVENTORY ===
     inventoryBtn.onclick = async () => {
-      inventoryBtn.disabled = true;
-      inventoryBtn.textContent = "Loading…";
-      status.textContent = "Fetching…";
-      inventoryTable.innerHTML = "";
+      inventoryBtn.disabled = true; inventoryBtn.textContent = "Loading…";
+      status.textContent = "Fetching…"; inventoryTable.innerHTML = "";
       document.getElementById('inventory').style.display = "none";
       inventoryFooter.style.display = "none";
 
       try {
-        const res = await fetch(`${API}?action=get_inventory&ts=${Date.now()}`, { 
-          method: 'GET', mode: 'cors', cache: 'no-cache'
-        });
+        const res = await fetch(`${API}?action=get_inventory&ts=${Date.now()}`, { method: 'GET', mode: 'cors', cache: 'no-cache' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
         if (data.action === "empty") {
           inventoryTable.innerHTML = "<tr><td colspan='3'>No items</td></tr>";
         } else if (data.action === "inventory" && Array.isArray(data.items)) {
-          inventoryData = data.items.map(item => ({ ...item })); // deep copy
+          inventoryData = data.items.map(i => ({ ...i }));
           renderInventory();
-        } else {
-          throw new Error("Invalid response");
-        }
+        } else throw new Error("Bad response");
 
         document.getElementById('inventory').style.display = "table";
         inventoryFooter.style.display = "block";
         updateCount();
-
       } catch (err) {
         status.innerHTML = `<span class="error">Failed:<br>${err.message}</span>`;
       } finally {
-        inventoryBtn.disabled = false;
-        inventoryBtn.textContent = "Show Inventory";
+        inventoryBtn.disabled = false; inventoryBtn.textContent = "Show Inventory";
       }
     };
 
@@ -119,10 +102,9 @@
           <td>${item.Name || '—'}</td>
           <td style="text-align:center;font-weight:bold;">${item.Quantity || 0}</td>
           <td class="qty-controls">
-            <button class="small" onclick="adjustQty(${idx}, -1)">–</button>
-            <button class="small" onclick="adjustQty(${idx}, 1)">+</button>
-          </td>
-        `;
+            <button class="small" onclick="adjustQty(${idx},-1)">–</button>
+            <button class="small" onclick="adjustQty(${idx},1)">+</button>
+          </td>`;
         inventoryTable.appendChild(row);
       });
     }
@@ -130,88 +112,57 @@
     window.adjustQty = (idx, delta) => {
       const item = inventoryData[idx];
       const newQty = (parseInt(item.Quantity) || 0) + delta;
-      if (newQty >= 0) {
-        item.Quantity = newQty;
-        renderInventory();
-        updateCount();
-      }
+      if (newQty >= 0) { item.Quantity = newQty; renderInventory(); updateCount(); }
     };
 
     function updateCount() {
-      const count = inventoryData.length;
-      inventoryCount.textContent = `Inventory: ${count} item${count === 1 ? '' : 's'}`;
+      const c = inventoryData.length;
+      inventoryCount.textContent = `Inventory: ${c} item${c===1?'':'s'}`;
     }
 
-    // === SAVE INVENTORY CHANGES ===
+    // === SAVE CHANGES ===
     saveInventoryBtn.onclick = async () => {
-      saveInventoryBtn.disabled = true;
-      saveInventoryBtn.textContent = "Saving…";
+      saveInventoryBtn.disabled = true; saveInventoryBtn.textContent = "Saving…";
       try {
-        const updates = inventoryData.map(item => ({
-          barcode: item.Barcode,
-          qty: item.Quantity
-        }));
-
-        const res = await fetch(API, {
-          method: 'POST',
-          mode: 'cors',
-          body: JSON.stringify({ action: 'update_quantities', updates }),
-          headers: { 'Content-Type': 'application/json' }
+        const updates = inventoryData.map(i => ({ barcode: i.Barcode, qty: i.Quantity }));
+        const res = await fetch(`${API}?action=update_quantities&data=${encodeURIComponent(JSON.stringify(updates))}`, {
+          method: 'GET', mode: 'cors', cache: 'no-cache'
         });
-
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const result = await res.json();
         if (result.success) {
           status.textContent = "Inventory saved!";
           setTimeout(() => status.textContent = "Tap to start…", 2000);
-        } else {
-          throw new Error(result.error || "Save failed");
-        }
+        } else throw new Error(result.error || "Save failed");
       } catch (err) {
         status.innerHTML = `<span class="error">Save failed:<br>${err.message}</span>`;
       } finally {
-        saveInventoryBtn.disabled = false;
-        saveInventoryBtn.textContent = "Save Changes";
+        saveInventoryBtn.disabled = false; saveInventoryBtn.textContent = "Save Changes";
       }
     };
 
-    // === CAMERA & SCANNER ===
+    // === CAMERA ===
     startBtn.onclick = async () => {
-      startBtn.disabled = true;
-      startBtn.style.display = "none";
-      stopBtn.style.display = "block";
-      inventoryBtn.style.display = "none";
+      startBtn.disabled = true; startBtn.style.display = "none";
+      stopBtn.style.display = "block"; inventoryBtn.style.display = "none";
       status.textContent = "Requesting camera…";
-
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false
-        });
-        videoEl.srcObject = stream;
-        videoEl.style.display = "block";
-        status.textContent = "Camera on – initializing…";
-
-        await new Promise((r, rej) => {
-          videoEl.onloadedmetadata = () => videoEl.play().then(() => setTimeout(r, 300)).catch(rej);
-          videoEl.onerror = rej;
-        });
-
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        videoEl.srcObject = stream; videoEl.style.display = "block";
+        await videoEl.play();
         status.textContent = "Scanning…";
-        codeReader.decodeFromVideoDevice(null, videoEl, (result) => {
+        codeReader.decodeFromVideoDevice(null, videoEl, result => {
           if (result) {
             currentBarcode = result.getText();
             status.textContent = `Found: ${currentBarcode}`;
             codeReader.reset();
             fetch(`${API}?code=${currentBarcode}`, { method: 'GET' })
               .then(r => r.json())
-              .then(data => {
-                if (data.action === "ask_name") {
+              .then(d => {
+                if (d.action === "ask_name") {
                   document.getElementById('name_input').style.display = "block";
                   document.getElementById('save_btn').style.display = "block";
-                } else {
-                  status.textContent = `${data.action.toUpperCase()}: ${data.qty}`;
-                }
+                } else status.textContent = `${d.action.toUpperCase()}: ${d.qty}`;
               });
           }
         });
@@ -221,22 +172,16 @@
       }
     };
 
-    stopBtn.onclick = () => resetToMainScreen();
+    stopBtn.onclick = resetToMainScreen;
 
     function resetToMainScreen() {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-      }
-      videoEl.srcObject = null;
-      videoEl.style.display = "none";
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      videoEl.srcObject = null; videoEl.style.display = "none";
       codeReader.reset();
-      startBtn.disabled = false;
-      startBtn.style.display = "block";
-      stopBtn.style.display = "none";
-      inventoryBtn.style.display = "block";
+      startBtn.disabled = false; startBtn.style.display = "block";
+      stopBtn.style.display = "none"; inventoryBtn.style.display = "block";
       document.getElementById('name_input').style.display = "none";
-      document.getElementById('save_btn').style.display = "block"; // stays visible
+      document.getElementById('save_btn').style.display = "block";
       document.getElementById('name_input').value = "";
       status.textContent = "Tap to start…";
     }
@@ -257,5 +202,3 @@
   </script>
 </body>
 </html>
-
-
