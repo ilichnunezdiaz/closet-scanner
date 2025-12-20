@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Closet Scanner</title>
   
-  <!-- Progressive Web App manifest (lets you "install" on home screen) -->
   <link rel="manifest" href="data:application/manifest+json,{
     \"name\":\"Closet Scanner\",
     \"short_name\":\"Scanner\",
@@ -38,7 +37,6 @@
 
   <h2>Supply Closet Scanner</h2>
 
-  <!-- Main controls -->
   <div style="text-align:center;">
     <button id="startBtn">Start Scanning</button>
     <button id="stopBtn" style="display:none; background:#f44336;">Stop</button>
@@ -47,14 +45,11 @@
 
   <div id="status">Tap to start…</div>
 
-  <!-- Camera preview -->
   <video id="video" autoplay playsinline muted></video>
 
-  <!-- Name input (shown only when new item needs a name) -->
   <input id="name_input" placeholder="Item name">
   <button id="save_btn">Save</button>
 
-  <!-- Inventory Table -->
   <table id="inventory" style="display:none;">
     <thead>
       <tr>
@@ -66,22 +61,20 @@
     <tbody></tbody>
   </table>
 
-  <!-- Footer with count and save button (shown only when inventory loaded) -->
   <div id="inventoryFooter" class="inventory-footer" style="display:none;">
     <p id="inventoryCount" style="margin:10px 0;font-weight:bold;"></p>
     <button id="saveInventoryBtn" style="background:#1976d2;">Save Changes</button>
   </div>
 
-  <!-- ZXing barcode scanner library -->
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
 
   <script>
-    // === UPDATE THIS URL AFTER DEPLOYING YOUR APPS SCRIPT ===
-    const API = "https://script.google.com/macros/s/AKfycbztRBQOJp3tKW2_fOsCWPwQ_h-IQYmttwFIqWHLzOdTIYBNVFirRjDoWEqv4RGQeK4F/exec";
+    // === REPLACE WITH YOUR LATEST APPS SCRIPT WEB APP URL ===
+    const API = "https://script.google.com/macros/s/AKfycbzWgHhhoIAyW4APvd-Th7SNgtJpAJ4wToEeRK2Gy8RWEgK_6Pj7FwMXxcMEDoCvwxqc/exec";
 
     let currentBarcode = null;
     let stream = null;
-    let inventoryData = [];  // Local copy of inventory for editing
+    let inventoryData = [];
 
     const codeReader = new ZXing.BrowserMultiFormatReader();
     const videoEl = document.getElementById('video');
@@ -94,7 +87,6 @@
     const inventoryCount = document.getElementById('inventoryCount');
     const saveInventoryBtn = document.getElementById('saveInventoryBtn');
 
-    // === SHOW INVENTORY ===
     inventoryBtn.onclick = async () => {
       inventoryBtn.disabled = true;
       inventoryBtn.textContent = "Loading…";
@@ -113,7 +105,7 @@
         if (data.action === "empty") {
           inventoryTable.innerHTML = "<tr><td colspan='3'>No items in stock</td></tr>";
         } else if (data.action === "inventory" && Array.isArray(data.items)) {
-          inventoryData = data.items.map(i => ({ ...i }));  // Deep copy for local editing
+          inventoryData = data.items.map(i => ({ ...i }));
           renderInventory();
         } else {
           throw new Error("Invalid response");
@@ -131,7 +123,6 @@
       }
     };
 
-    // Render the current local inventoryData to the table
     function renderInventory() {
       inventoryTable.innerHTML = "";
       inventoryData.forEach((item, idx) => {
@@ -148,7 +139,6 @@
       });
     }
 
-    // Adjust quantity locally (allows going down to 0)
     window.adjustQty = (idx, delta) => {
       const item = inventoryData[idx];
       const currentQty = parseInt(item.Quantity) || 0;
@@ -160,21 +150,24 @@
       }
     };
 
-    // Update item count display
     function updateCount() {
       const c = inventoryData.length;
       inventoryCount.textContent = `Inventory: ${c} item${c === 1 ? '' : 's'}`;
     }
 
-    // === SAVE INVENTORY CHANGES ===
+    // === FIXED SAVE USING POST ===
     saveInventoryBtn.onclick = async () => {
       saveInventoryBtn.disabled = true;
       saveInventoryBtn.textContent = "Saving…";
 
       try {
         const updates = inventoryData.map(i => ({ barcode: i.Barcode, qty: parseInt(i.Quantity) || 0 }));
-        const res = await fetch(`${API}?action=update_quantities&data=${encodeURIComponent(JSON.stringify(updates))}`, {
-          method: 'GET', mode: 'cors', cache: 'no-cache'
+
+        const res = await fetch(API, {
+          method: 'POST',
+          mode: 'cors',
+          body: JSON.stringify({ action: 'update_quantities', data: updates }),
+          headers: { 'Content-Type': 'application/json' }
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -193,7 +186,6 @@
       }
     };
 
-    // === START CAMERA & SCANNER ===
     startBtn.onclick = async () => {
       startBtn.disabled = true;
       startBtn.style.display = "none";
@@ -222,7 +214,6 @@
                 if (d.action === "ask_name") {
                   document.getElementById('name_input').style.display = "block";
                   document.getElementById('save_btn').style.display = "block";
-                  // User will type name and click Save → handled by your existing save_btn logic (not shown here, but assumed working)
                 } else {
                   status.textContent = `${d.action.toUpperCase()}: ${d.qty}`;
                 }
@@ -235,7 +226,6 @@
       }
     };
 
-    // === STOP CAMERA ===
     stopBtn.onclick = resetToMainScreen;
 
     function resetToMainScreen() {
@@ -258,4 +248,3 @@
   </script>
 </body>
 </html>
-
