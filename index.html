@@ -70,7 +70,7 @@
 
   <script>
     // === UPDATE THIS WITH YOUR NEW WEB APP URL AFTER DEPLOYING ===
-    const API = "https://script.google.com/macros/s/AKfycbxXASHwYVqEWjV4CdjY3WX7M2khJb8WzZAkcQUOQKlkWbAiW66hBXMXzXqXaip3tZe_/exec";
+    const API = "https://script.google.com/macros/s/YOUR_NEW_URL_HERE/exec";
 
     let currentBarcode = null;
     let stream = null;
@@ -86,6 +86,32 @@
     const inventoryFooter = document.getElementById('inventoryFooter');
     const inventoryCount = document.getElementById('inventoryCount');
     const saveInventoryBtn = document.getElementById('saveInventoryBtn');
+    const nameInput = document.getElementById('name_input');
+    const saveBtn = document.getElementById('save_btn');
+
+    // === FIXED: HANDLER FOR SAVING NEW ITEM NAME ===
+    saveBtn.onclick = async () => {
+      const name = nameInput.value.trim();
+      if (!name || !currentBarcode) {
+        status.innerHTML = '<span class="error">Enter a name</span>';
+        return;
+      }
+      try {
+        const res = await fetch(`${API}?code=${encodeURIComponent(currentBarcode)}&name=${encodeURIComponent(name)}`, {
+          method: 'GET',
+          mode: 'cors',
+          cache: 'no-cache'
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const d = await res.json();
+        status.textContent = `${d.action.toUpperCase()}: ${d.qty}`;
+        nameInput.style.display = "none";
+        saveBtn.style.display = "none";
+        nameInput.value = "";
+      } catch (err) {
+        status.innerHTML = `<span class="error">Add failed:<br>${err.message}</span>`;
+      }
+    };
 
     // Load inventory
     inventoryBtn.onclick = async () => {
@@ -214,8 +240,8 @@
               .then(r => r.json())
               .then(d => {
                 if (d.action === "ask_name") {
-                  document.getElementById('name_input').style.display = "block";
-                  document.getElementById('save_btn').style.display = "block";
+                  nameInput.style.display = "block";
+                  saveBtn.style.display = "block";
                 } else {
                   status.textContent = `${d.action.toUpperCase()}: ${d.qty}`;
                 }
@@ -239,9 +265,9 @@
       startBtn.style.display = "block";
       stopBtn.style.display = "none";
       inventoryBtn.style.display = "block";
-      document.getElementById('name_input').style.display = "none";
-      document.getElementById('save_btn').style.display = "block";
-      document.getElementById('name_input').value = "";
+      nameInput.style.display = "none";
+      saveBtn.style.display = "none";
+      nameInput.value = "";
       status.textContent = "Tap to start…";
     }
   </script>
