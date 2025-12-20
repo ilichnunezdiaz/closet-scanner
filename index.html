@@ -69,8 +69,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
 
   <script>
-    // === REPLACE WITH YOUR LATEST APPS SCRIPT WEB APP URL ===
-    const API = "https://script.google.com/macros/s/AKfycbxKvAdLpoMlgdStLM220HmEjUS9r9D5Oh2Ysu6YJt-UQg1WJQ17n2lFCis5_p1nZUg/exec";
+    // === UPDATE THIS WITH YOUR NEW WEB APP URL AFTER DEPLOYING ===
+    const API = "https://script.google.com/macros/s/AKfycbxXASHwYVqEWjV4CdjY3WX7M2khJb8WzZAkcQUOQKlkWbAiW66hBXMXzXqXaip3tZe_/exec";
 
     let currentBarcode = null;
     let stream = null;
@@ -87,6 +87,7 @@
     const inventoryCount = document.getElementById('inventoryCount');
     const saveInventoryBtn = document.getElementById('saveInventoryBtn');
 
+    // Load inventory
     inventoryBtn.onclick = async () => {
       inventoryBtn.disabled = true;
       inventoryBtn.textContent = "Loading…";
@@ -155,7 +156,7 @@
       inventoryCount.textContent = `Inventory: ${c} item${c === 1 ? '' : 's'}`;
     }
 
-    // === FIXED SAVE USING POST ===
+    // === RELIABLE SAVE USING text/plain ===
     saveInventoryBtn.onclick = async () => {
       saveInventoryBtn.disabled = true;
       saveInventoryBtn.textContent = "Saving…";
@@ -167,7 +168,7 @@
           method: 'POST',
           mode: 'cors',
           body: JSON.stringify({ action: 'update_quantities', data: updates }),
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'text/plain' }  // This bypasses CORS preflight
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -186,6 +187,7 @@
       }
     };
 
+    // Camera & scanning
     startBtn.onclick = async () => {
       startBtn.disabled = true;
       startBtn.style.display = "none";
@@ -229,10 +231,7 @@
     stopBtn.onclick = resetToMainScreen;
 
     function resetToMainScreen() {
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-      }
+      if (stream) stream.getTracks().forEach(t => t.stop());
       videoEl.srcObject = null;
       videoEl.style.display = "none";
       codeReader.reset();
@@ -248,4 +247,3 @@
   </script>
 </body>
 </html>
-
