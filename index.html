@@ -26,7 +26,7 @@
     button {
       padding: 12px;
       margin: 10px;
-      font-size: 16px;
+        font-size: 16px;
       border: none;
       border-radius: 6px;
       background: #4CAF50;
@@ -87,30 +87,37 @@
       text-align: center;
       margin: 20px;
     }
+    
+    /* NEW: Highlight animation for scanned items */
+    @keyframes highlight-pulse {
+      0% { background-color: #FFF9C4; }
+      50% { background-color: #FFEB3B; }
+      100% { background-color: #FFF9C4; }
+    }
+    
+    .highlight-scanned {
+      animation: highlight-pulse 1s ease-in-out 3;
+      transition: background-color 0.5s ease-out;
+    }
   </style>
 </head>
 <body>
   <h2>Supply Closet Scanner</h2>
 
-  <!-- ==================== MAIN BUTTON ROW ==================== -->
-  <!-- FIXED: Added "Recipes" button in correct order -->
   <div style="text-align:center;">
     <button id="startBtn">Start Scanning</button>
     <button id="stopBtn" style="display:none; background:#f44336;">Stop</button>
     <button id="inventoryBtn">Show Inventory</button>
-    <button id="recipesBtn">Recipes</button> <!-- NEW: Recipes button added here -->
+    <button id="recipesBtn">Recipes</button>
   </div>
 
   <div id="status">Tap to start…</div>
 
-  <!-- Camera video feed (hidden by default) -->
   <video id="video" autoplay playsinline muted></video>
 
-  <!-- Name input for new items (hidden by default) -->
   <input id="name_input" placeholder="Item name">
   <button id="save_btn">Save</button>
 
-  <!-- Inventory table (hidden by default) -->
   <table id="inventory" style="display:none;">
     <thead>
       <tr>
@@ -122,32 +129,27 @@
     <tbody></tbody>
   </table>
 
-  <!-- Inventory footer with save button (hidden by default) -->
   <div id="inventoryFooter" class="inventory-footer" style="display:none;">
     <p id="inventoryCount" style="margin:10px 0;font-weight:bold;"></p>
     <button id="saveInventoryBtn" style="background:#1976d2;">Save Changes</button>
   </div>
 
-  <!-- ZXing barcode scanner library -->
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js"></script>
 
   <script>
-    // ==================== CONFIGURATION ====================
-    // UPDATE THIS WITH YOUR NEW WEB APP URL AFTER DEPLOYING
     const API = "https://script.google.com/macros/s/AKfycbz9K2Rf3D7n1PcxLvVpvTUXrmdnQ9MF77AcdSUzyCbS9S384XW8hKq_q9glZaTLTlRS/exec";
 
-    // ==================== GLOBAL STATE ====================
-    let currentBarcode = null;     // Currently scanned barcode
-    let stream = null;              // Camera video stream
-    let inventoryData = [];         // Local copy of inventory for editing
+    let currentBarcode = null;
+    let stream = null;
+    let inventoryData = [];
+    let inventoryVisible = false;  // NEW: Track if inventory is visible
 
-    // ==================== DOM ELEMENT REFERENCES ====================
     const codeReader = new ZXing.BrowserMultiFormatReader();
     const videoEl = document.getElementById('video');
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const inventoryBtn = document.getElementById('inventoryBtn');
-    const recipesBtn = document.getElementById('recipesBtn');  // FIXED: Added recipes button reference
+    const recipesBtn = document.getElementById('recipesBtn');
     const status = document.getElementById('status');
     const inventoryTable = document.getElementById('inventory').querySelector('tbody');
     const inventoryFooter = document.getElementById('inventoryFooter');
@@ -157,18 +159,14 @@
     const saveBtn = document.getElementById('save_btn');
 
     // ==================== SAVE NEW ITEM NAME ====================
-    // When user scans unknown barcode, they enter a name and tap "Save"
     saveBtn.onclick = async () => {
       const name = nameInput.value.trim();
-      
-      // Validate input
       if (!name || !currentBarcode) {
         status.innerHTML = '<span class="error">Enter a name</span>';
         return;
       }
 
       try {
-        // Send GET request to Apps Script with barcode and name
         const res = await fetch(`${API}?code=${encodeURIComponent(currentBarcode)}&name=${encodeURIComponent(name)}`, {
           method: 'GET',
           mode: 'cors',
@@ -176,16 +174,18 @@
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        
         const d = await res.json();
         
-        // Show success message
         status.textContent = `${d.action.toUpperCase()}: ${d.qty}`;
         
-        // Hide input fields
         nameInput.style.display = "none";
         saveBtn.style.display = "none";
         nameInput.value = "";
+        
+        // NEW: Refresh inventory if visible
+        if (inventoryVisible) {
+          await refreshInventory(currentBarcode);
+        }
         
       } catch (err) {
         status.innerHTML = `<span class="error">Add failed:<br>${err.message}</span>`;
@@ -193,7 +193,6 @@
     };
 
     // ==================== LOAD INVENTORY ====================
-    // Fetch all items from Google Sheet and display them
     inventoryBtn.onclick = async () => {
       inventoryBtn.disabled = true;
       inventoryBtn.textContent = "Loading…";
@@ -203,7 +202,6 @@
       inventoryFooter.style.display = "none";
 
       try {
-        // Fetch inventory from Apps Script
         const res = await fetch(`${API}?action=get_inventory&ts=${Date.now()}`, {
           method: 'GET',
           mode: 'cors',
@@ -214,23 +212,20 @@
         
         const data = await res.json();
 
-        // Handle empty inventory
         if (data.action === "empty") {
           inventoryTable.innerHTML = "<tr><td colspan='3'>No items in stock</td></tr>";
         } 
-        // Handle successful inventory load
         else if (data.action === "inventory" && Array.isArray(data.items)) {
-          // Store local copy for editing
           inventoryData = data.items.map(i => ({ ...i }));
           renderInventory();
-        } 
+        }
         else {
           throw new Error("Invalid response");
         }
 
-        // Show inventory table and footer
         document.getElementById('inventory').style.display = "table";
         inventoryFooter.style.display = "block";
+        inventoryVisible = true;  // NEW: Mark inventory as visible
         updateCount();
 
       } catch (err) {
@@ -241,13 +236,46 @@
       }
     };
 
+    // ==================== NEW: REFRESH INVENTORY ====================
+    async function refreshInventory(highlightBarcode = null) {
+      try {
+        const res = await fetch(`${API}?action=get_inventory&ts=${Date.now()}`, {
+          method: 'GET',
+          mode: 'cors',
+          cache: 'no-cache'
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        const data = await res.json();
+        if (data.action === "inventory" && Array.isArray(data.items)) {
+          inventoryData = data.items.map(i => ({ ...i }));
+          renderInventory(highlightBarcode);
+          updateCount();
+        }
+      } catch (err) {
+        console.error("Failed to refresh inventory:", err);
+      }
+    }
+
     // ==================== RENDER INVENTORY TABLE ====================
-    // Build HTML rows from inventoryData array
-    function renderInventory() {
+    function renderInventory(highlightBarcode = null) {
       inventoryTable.innerHTML = "";
       
       inventoryData.forEach((item, idx) => {
         const row = document.createElement('tr');
+        
+        // NEW: Add highlight class if this is the scanned item
+        const isHighlighted = highlightBarcode && item.Barcode === highlightBarcode;
+        if (isHighlighted) {
+          row.className = 'highlight-scanned';
+          
+          // Remove highlight after animation completes
+          setTimeout(() => {
+            row.className = '';
+          }, 3500);  // 3 pulses × 1s + buffer
+        }
+        
         row.innerHTML = `
           <td>${item.Name || '—'}</td>
           <td style="text-align:center;font-weight:bold;">${item.Quantity || 0}</td>
@@ -257,45 +285,45 @@
           </td>
         `;
         inventoryTable.appendChild(row);
+        
+        // NEW: Scroll highlighted item into view
+        if (isHighlighted) {
+          setTimeout(() => {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 100);
+        }
       });
     }
 
     // ==================== ADJUST QUANTITY ====================
-    // Called when user taps + or - button in inventory
     window.adjustQty = (idx, delta) => {
       const item = inventoryData[idx];
       const currentQty = parseInt(item.Quantity) || 0;
       const newQty = currentQty + delta;
 
-      // Don't allow negative quantities
       if (newQty >= 0) {
         item.Quantity = newQty;
         renderInventory();
         updateCount();
       }
     };
-
     // ==================== UPDATE ITEM COUNT ====================
-    // Show total number of items in inventory
     function updateCount() {
       const c = inventoryData.length;
       inventoryCount.textContent = `Inventory: ${c} item${c === 1 ? '' : 's'}`;
     }
 
     // ==================== SAVE INVENTORY CHANGES ====================
-    // Send all quantity updates to Apps Script (batch update)
     saveInventoryBtn.onclick = async () => {
       saveInventoryBtn.disabled = true;
       saveInventoryBtn.textContent = "Saving…";
 
       try {
-        // Build array of updates (barcode + new quantity)
         const updates = inventoryData.map(i => ({
           barcode: i.Barcode,
           qty: parseInt(i.Quantity) || 0
         }));
 
-        // Send POST request with JSON payload
         const res = await fetch(API, {
           method: 'POST',
           mode: 'cors',
@@ -304,7 +332,7 @@
             data: updates
           }),
           headers: {
-            'Content-Type': 'text/plain'  // Bypass CORS preflight
+            'Content-Type': 'text/plain'
           }
         });
 
@@ -333,16 +361,14 @@
       startBtn.style.display = "none";
       stopBtn.style.display = "block";
       
-      // FIXED: Hide both inventory and recipes buttons during scanning
       inventoryBtn.style.display = "none";
       recipesBtn.style.display = "none";
       
       status.textContent = "Requesting camera…";
 
       try {
-        // Request camera permission and stream
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },  // Use back camera on phones
+          video: { facingMode: "environment" },
           audio: false
         });
 
@@ -352,24 +378,25 @@
         
         status.textContent = "Scanning…";
 
-        // Start barcode detection loop
         codeReader.decodeFromVideoDevice(null, videoEl, result => {
           if (result) {
             currentBarcode = result.getText();
             status.textContent = `Found: ${currentBarcode}`;
             codeReader.reset();
 
-            // Send barcode to Apps Script (increment or ask for name)
             fetch(`${API}?code=${currentBarcode}`, { method: 'GET' })
               .then(r => r.json())
               .then(d => {
                 if (d.action === "ask_name") {
-                  // Unknown item - show name input
                   nameInput.style.display = "block";
                   saveBtn.style.display = "block";
                 } else {
-                  // Known item - show updated quantity
                   status.textContent = `${d.action.toUpperCase()}: ${d.qty}`;
+                  
+                  // NEW: Refresh inventory if visible
+                  if (inventoryVisible) {
+                    refreshInventory(currentBarcode);
+                  }
                 }
               });
           }
@@ -385,39 +412,35 @@
     stopBtn.onclick = resetToMainScreen;
 
     // ==================== RECIPES BUTTON (PLACEHOLDER) ====================
-    // FIXED: Added recipes button handler
     recipesBtn.onclick = () => {
       status.textContent = "Recipes coming soon...";
-      // TODO: Show recipe list or recipe flow UI here
     };
 
     // ==================== RESET TO MAIN SCREEN ====================
-    // Clean up camera stream and return to main menu
     function resetToMainScreen() {
-      // Stop camera stream
       if (stream) stream.getTracks().forEach(t => t.stop());
       videoEl.srcObject = null;
       videoEl.style.display = "none";
       codeReader.reset();
 
-      // Show main buttons
       startBtn.disabled = false;
       startBtn.style.display = "block";
       stopBtn.style.display = "none";
-      
-      // FIXED: Show both inventory and recipes buttons
       inventoryBtn.style.display = "block";
       recipesBtn.style.display = "block";
 
-      // Hide input fields
       nameInput.style.display = "none";
       saveBtn.style.display = "none";
       nameInput.value = "";
 
-      // Reset status message
       status.textContent = "Tap to start…";
+      
+      // NEW: Mark inventory as hidden when returning to main screen
+      if (!document.getElementById('inventory').style.display || 
+          document.getElementById('inventory').style.display === 'none') {
+        inventoryVisible = false;
+      }
     }
   </script>
 </body>
 </html>
-
