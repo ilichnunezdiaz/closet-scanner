@@ -26,7 +26,7 @@
     button {
       padding: 12px;
       margin: 10px;
-        font-size: 16px;
+      font-size: 16px;
       border: none;
       border-radius: 6px;
       background: #4CAF50;
@@ -88,7 +88,7 @@
       margin: 20px;
     }
     
-    /* NEW: Highlight animation for scanned items */
+    /* Highlight animation (saved for future fix) */
     @keyframes highlight-pulse {
       0% { background-color: #FFF9C4; }
       50% { background-color: #FFEB3B; }
@@ -107,6 +107,7 @@
   <div style="text-align:center;">
     <button id="startBtn">Start Scanning</button>
     <button id="stopBtn" style="display:none; background:#f44336;">Stop</button>
+    <button id="scanAnotherBtn" style="display:none; background:#2196F3;">Scan Another</button>
     <button id="inventoryBtn">Show Inventory</button>
     <button id="recipesBtn">Recipes</button>
   </div>
@@ -114,7 +115,6 @@
   <div id="status">Tap to start…</div>
 
   <video id="video" autoplay playsinline muted></video>
-
   <input id="name_input" placeholder="Item name">
   <button id="save_btn">Save</button>
 
@@ -142,12 +142,13 @@
     let currentBarcode = null;
     let stream = null;
     let inventoryData = [];
-    let inventoryVisible = false;  // NEW: Track if inventory is visible
-
+    let inventoryVisible = false;
+    let scanningActive = false; // NEW: Track if actively waiting for barcode
     const codeReader = new ZXing.BrowserMultiFormatReader();
     const videoEl = document.getElementById('video');
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
+    const scanAnotherBtn = document.getElementById('scanAnotherBtn'); // NEW
     const inventoryBtn = document.getElementById('inventoryBtn');
     const recipesBtn = document.getElementById('recipesBtn');
     const status = document.getElementById('status');
@@ -157,10 +158,10 @@
     const saveInventoryBtn = document.getElementById('saveInventoryBtn');
     const nameInput = document.getElementById('name_input');
     const saveBtn = document.getElementById('save_btn');
-
     // ==================== SAVE NEW ITEM NAME ====================
     saveBtn.onclick = async () => {
       const name = nameInput.value.trim();
+      
       if (!name || !currentBarcode) {
         status.innerHTML = '<span class="error">Enter a name</span>';
         return;
@@ -172,20 +173,23 @@
           mode: 'cors',
           cache: 'no-cache'
         });
-
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
         const d = await res.json();
         
-        status.textContent = `${d.action.toUpperCase()}: ${d.qty}`;
+        status.textContent = `${d.action.toUpperCase()}: ${d.name || ''} qty: ${d.qty}`;
         
         nameInput.style.display = "none";
         saveBtn.style.display = "none";
         nameInput.value = "";
         
-        // NEW: Refresh inventory if visible
-        if (inventoryVisible) {
-          await refreshInventory(currentBarcode);
+        // NEW: Fast update - use response data instead of full refresh
+        if (inventoryVisible && d.action === "added") {
+          updateInventoryRow(currentBarcode, d.name, d.qty);
         }
+        
+        // Show "Scan Another" button
+        scanAnotherBtn.style.display = "inline-block";
         
       } catch (err) {
         status.innerHTML = `<span class="error">Add failed:<br>${err.message}</span>`;
@@ -214,20 +218,20 @@
 
         if (data.action === "empty") {
           inventoryTable.innerHTML = "<tr><td colspan='3'>No items in stock</td></tr>";
+          inventoryData = [];
         } 
         else if (data.action === "inventory" && Array.isArray(data.items)) {
           inventoryData = data.items.map(i => ({ ...i }));
           renderInventory();
-        }
+        } 
         else {
           throw new Error("Invalid response");
         }
 
         document.getElementById('inventory').style.display = "table";
         inventoryFooter.style.display = "block";
-        inventoryVisible = true;  // NEW: Mark inventory as visible
+        inventoryVisible = true;
         updateCount();
-
       } catch (err) {
         status.innerHTML = `<span class="error">Failed:<br>${err.message}</span>`;
       } finally {
@@ -236,26 +240,28 @@
       }
     };
 
-    // ==================== NEW: REFRESH INVENTORY ====================
-    async function refreshInventory(highlightBarcode = null) {
-      try {
-        const res = await fetch(`${API}?action=get_inventory&ts=${Date.now()}`, {
-          method: 'GET',
-          mode: 'cors',
-          cache: 'no-cache'
+    // ==================== NEW: FAST INVENTORY UPDATE (OPTION B) ====================
+    function updateInventoryRow(barcode, name, newQty) {
+      // Find item in local inventory data
+      const item = inventoryData.find(i => 
+        String(i.Barcode).trim() === String(barcode).trim()
+      );
+      
+      if (item) {
+        // Update existing item
+        item.Quantity = newQty;
+      } else {
+        // Add new item to inventory
+        inventoryData.push({
+          Barcode: barcode,
+          Name: name,
+          Quantity: newQty
         });
-
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        
-        const data = await res.json();
-        if (data.action === "inventory" && Array.isArray(data.items)) {
-          inventoryData = data.items.map(i => ({ ...i }));
-          renderInventory(highlightBarcode);
-          updateCount();
-        }
-      } catch (err) {
-        console.error("Failed to refresh inventory:", err);
       }
+      
+      // Re-render table with updated data
+      renderInventory();
+      updateCount();
     }
 
     // ==================== RENDER INVENTORY TABLE ====================
@@ -265,15 +271,12 @@
       inventoryData.forEach((item, idx) => {
         const row = document.createElement('tr');
         
-        // NEW: Add highlight class if this is the scanned item
-        const isHighlighted = highlightBarcode && item.Barcode === highlightBarcode;
+        // Highlight support (saved for future fix - Issue #1)
+        const isHighlighted = highlightBarcode && 
+          String(item.Barcode).trim() === String(highlightBarcode).trim();
         if (isHighlighted) {
           row.className = 'highlight-scanned';
-          
-          // Remove highlight after animation completes
-          setTimeout(() => {
-            row.className = '';
-          }, 3500);  // 3 pulses × 1s + buffer
+          setTimeout(() => { row.className = ''; }, 3500);
         }
         
         row.innerHTML = `
@@ -286,7 +289,6 @@
         `;
         inventoryTable.appendChild(row);
         
-        // NEW: Scroll highlighted item into view
         if (isHighlighted) {
           setTimeout(() => {
             row.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -307,6 +309,7 @@
         updateCount();
       }
     };
+
     // ==================== UPDATE ITEM COUNT ====================
     function updateCount() {
       const c = inventoryData.length;
@@ -317,7 +320,6 @@
     saveInventoryBtn.onclick = async () => {
       saveInventoryBtn.disabled = true;
       saveInventoryBtn.textContent = "Saving…";
-
       try {
         const updates = inventoryData.map(i => ({
           barcode: i.Barcode,
@@ -359,7 +361,8 @@
     startBtn.onclick = async () => {
       startBtn.disabled = true;
       startBtn.style.display = "none";
-      stopBtn.style.display = "block";
+      stopBtn.style.display = "inline-block";
+      scanAnotherBtn.style.display = "none"; // Hide initially
       
       inventoryBtn.style.display = "none";
       recipesBtn.style.display = "none";
@@ -376,13 +379,15 @@
         videoEl.style.display = "block";
         await videoEl.play();
         
+        scanningActive = true;
         status.textContent = "Scanning…";
 
         codeReader.decodeFromVideoDevice(null, videoEl, result => {
-          if (result) {
+          if (result && scanningActive) {
             currentBarcode = result.getText();
             status.textContent = `Found: ${currentBarcode}`;
             codeReader.reset();
+            scanningActive = false; // Pause scanning until "Scan Another" clicked
 
             fetch(`${API}?code=${currentBarcode}`, { method: 'GET' })
               .then(r => r.json())
@@ -390,14 +395,22 @@
                 if (d.action === "ask_name") {
                   nameInput.style.display = "block";
                   saveBtn.style.display = "block";
+                  scanAnotherBtn.style.display = "none"; // Hide until name saved
                 } else {
-                  status.textContent = `${d.action.toUpperCase()}: ${d.qty}`;
+                  status.textContent = `${d.action.toUpperCase()}: ${d.name || ''} qty: ${d.qty}`;
                   
-                  // NEW: Refresh inventory if visible
+                  // NEW: Fast update using response data (OPTION B)
                   if (inventoryVisible) {
-                    refreshInventory(currentBarcode);
+                    updateInventoryRow(currentBarcode, d.name, d.qty);
                   }
+                  
+                  // Show "Scan Another" button
+                  scanAnotherBtn.style.display = "inline-block";
                 }
+              })
+              .catch(err => {
+                status.innerHTML = `<span class="error">Scan failed:<br>${err.message}</span>`;
+                scanAnotherBtn.style.display = "inline-block"; // Allow retry
               });
           }
         });
@@ -406,6 +419,46 @@
         status.innerHTML = `<span class="error">Camera error:<br>${err.message}</span>`;
         resetToMainScreen();
       }
+    };
+
+    // ==================== NEW: SCAN ANOTHER BUTTON ====================
+    scanAnotherBtn.onclick = () => {
+      currentBarcode = null;
+      scanningActive = true; // Resume scanning
+      status.textContent = "Scanning…";
+      scanAnotherBtn.style.display = "none";
+      
+      // Resume barcode detection (camera already running)
+      codeReader.decodeFromVideoDevice(null, videoEl, result => {
+        if (result && scanningActive) {
+          currentBarcode = result.getText();
+          status.textContent = `Found: ${currentBarcode}`;
+          codeReader.reset();
+          scanningActive = false;
+
+          fetch(`${API}?code=${currentBarcode}`, { method: 'GET' })
+            .then(r => r.json())
+            .then(d => {
+              if (d.action === "ask_name") {
+                nameInput.style.display = "block";
+                saveBtn.style.display = "block";
+                scanAnotherBtn.style.display = "none";
+              } else {
+                status.textContent = `${d.action.toUpperCase()}: ${d.name || ''} qty: ${d.qty}`;
+                
+                if (inventoryVisible) {
+                  updateInventoryRow(currentBarcode, d.name, d.qty);
+                }
+                
+                scanAnotherBtn.style.display = "inline-block";
+              }
+            })
+            .catch(err => {
+              status.innerHTML = `<span class="error">Scan failed:<br>${err.message}</span>`;
+              scanAnotherBtn.style.display = "inline-block";
+            });
+        }
+      });
     };
 
     // ==================== STOP SCANNING ====================
@@ -422,20 +475,21 @@
       videoEl.srcObject = null;
       videoEl.style.display = "none";
       codeReader.reset();
+      scanningActive = false;
 
       startBtn.disabled = false;
-      startBtn.style.display = "block";
+      startBtn.style.display = "inline-block";
       stopBtn.style.display = "none";
-      inventoryBtn.style.display = "block";
-      recipesBtn.style.display = "block";
-
+      scanAnotherBtn.style.display = "none";
+      
+      inventoryBtn.style.display = "inline-block";
+      recipesBtn.style.display = "inline-block";
       nameInput.style.display = "none";
       saveBtn.style.display = "none";
       nameInput.value = "";
 
       status.textContent = "Tap to start…";
       
-      // NEW: Mark inventory as hidden when returning to main screen
       if (!document.getElementById('inventory').style.display || 
           document.getElementById('inventory').style.display === 'none') {
         inventoryVisible = false;
